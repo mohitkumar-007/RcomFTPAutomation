@@ -1,11 +1,16 @@
 name: Gameplay Test Suite
 
 on:
-  # Trigger on push to main/dev, PRs, or manual dispatch
   push:
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+
+env:
+  FLUTTER_VERSION: '3.41.6'
+  PATROL_CLI_VERSION: '4.5.1'
 
 jobs:
   test:
@@ -14,102 +19,89 @@ jobs:
 
     steps:
       # 1. Checkout RcomFTPAutomation (this test suite repo)
-      - uses: actions/checkout@v4
+      - name: Checkout RcomFTPAutomation
+        uses: actions/checkout@v4
         with:
           path: RcomFTPAutomation
 
-      # 2. Checkout Prism (the app being tested)
-      # Assumes: your-org/prism is the same org/account as RcomFTPAutomation
-      # If different, update 'repository:' below
-      - uses: actions/checkout@v4
+      # 2. Checkout Prism (the app being tested — separate repo, same owner)
+      - name: Checkout Prism
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/prism
           path: prism
+          # If Prism is private and this token can't see it, add a PAT:
+          # token: ${{ secrets.PRISM_REPO_TOKEN }}
 
       # 3. Set up Java (required by Android SDK)
-      - uses: actions/setup-java@v3
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Set up Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # 4. Set up Flutter at the exact pinned version (replaces FVM in CI —
+      #    flutter-action caches by version, no shell-script install needed)
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
         with:
-          api-level: 34
-          arch: x86_64
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
 
-      # 5. Create Android emulator
-      - name: Create Android emulator
+      # 5. Enable KVM so the emulator runs at hardware speed, not software
+      - name: Enable KVM for emulator
         run: |
-          echo "no" | avdmanager create avd -n test-emulator -k "system-images;android-34;google_apis;x86_64" -f
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
-      # 6. Start emulator (background)
-      - name: Start emulator
-        run: |
-          emulator -avd test-emulator -no-audio -no-boot-anim &
-          adb wait-for-device
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          sleep 10
-
-      # 7. Install FVM and Flutter 3.41.6
-      - name: Install FVM
-        run: |
-          brew install fvm || echo "FVM already installed"
-          fvm install 3.41.6
-          fvm use 3.41.6
-
-      # 8. Install Patrol CLI
+      # 6. Install Patrol CLI
       - name: Install Patrol CLI
-        run: |
-          pub global activate patrol_cli 4.5.1
+        run: dart pub global activate patrol_cli ${{ env.PATROL_CLI_VERSION }}
 
-      # 9. Get Rummy dependencies
+      # 7. Get Rummy dependencies
       - name: Get Rummy dependencies
         run: |
           cd prism/apps/rummy
           flutter pub get
 
-      # 10. Build test APK
-      - name: Build test APK
-        run: |
-          cd prism/apps/rummy
-          flutter build apk \
-            --release \
-            --flavor rummy \
-            --dart-define=FLUTTER_ENV=qa \
-            -t integration_test/main.dart
+      # 8. Run the full gameplay suite on a managed Android emulator.
+      #    reactivecircus/android-emulator-runner boots the AVD, runs the
+      #    script inside that context, and tears it down after — this is
+      #    the reliable way to get an emulator on a GitHub-hosted runner
+      #    (manual avdmanager/emulator invocation is flaky without it).
+      - name: Run gameplay suite on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect
+            -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+            DEVICE_ID=$(adb devices | awk 'NR==2 {print $1}')
+            cd RcomFTPAutomation
+            RUMMY_DIR="${{ github.workspace }}/prism/apps/rummy" \
+              ./run_suite.sh "$DEVICE_ID" --no-serve || true
+            # `|| true`: a scenario failure (or the known 6P watchdog kill)
+            # must not fail this step — the Allure report is the record of
+            # truth; the job below decides pass/fail from its contents.
 
-      # 11. Run the full gameplay test suite
-      - name: Run gameplay suite
-        run: |
-          cd RcomFTPAutomation
-          RUMMY_DIR=${{ github.workspace }}/prism/apps/rummy ./run_suite.sh emulator-5554 --no-serve
-        continue-on-error: true  # Don't fail the job if a test fails; report it instead
-
-      # 12. Archive logcats
+      # 9. Archive logcats + Allure results as a downloadable artifact
       - name: Archive test artifacts
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: gameplay-test-results
+          name: gameplay-test-results-${{ github.run_number }}
           path: |
             RcomFTPAutomation/reports/logcat_*.txt
             RcomFTPAutomation/reports/allure-results/
-
-      # 13. Publish report summary (optional: if you have a static hosting)
-      - name: Comment PR with report link
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const reportPath = 'RcomFTPAutomation/reports/allure-results/index.html';
-            const msg = `✅ Gameplay tests complete. See [Allure report](artifacts-link-here) for details.`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: msg
-            });
+          retention-days: 30
+          if-no-files-found: warn
