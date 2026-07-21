@@ -1,0 +1,21 @@
+{
+  "gameId": "TEST_POOL_001",
+  "variant": "POOL_RUMMY",
+  "poolLimit": 101,
+  "status": "IN_PROGRESS",
+  "currentTurn": "test_player",
+  "joker": "8H",
+  "deckCount": 30,
+  "scores": {
+    "test_player": 0,
+    "bot_player_1": 45,
+    "bot_player_2": 30
+  },
+  "players": [
+    {
+      "id": "test_player",
+      "name": "TestBot",
+      "hand": ["3H","4H","5H","6C","7C","8C","9S","10S","JS","KD","QD","AD","2D"]
+    }
+  ]
+}

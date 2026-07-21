@@ -1,0 +1,33 @@
+id: GP-TABLE-001
+title: Table setup — matchmaking, player join, toss, dealer, deal, timers observable
+suite: gameplay
+configs: [points-2p, points-6p]
+priority: P0
+
+preconditions:
+  - logged-in guest with ≥ 10K practice chips
+  - practice table per config (2 or 6 players)
+
+steps:
+  - Login (or reuse session) → Practice → Play Now
+  - Attach bridge BEFORE game start; record phase sequence until Playing
+  - Observe roster, toss outcome, dealer seat
+  - Observe local hand and opponent card counts after deal
+  - Observe turn timer configuration and current turn clock
+
+expected:
+  - Table reaches RummyGamePlaying (phase journey logged as evidence)
+  - ≥ 2 players seated in roster
+  - If a toss ran, its winner is a seated player
+  - Local hand has exactly 13 cards and a joker is selected
+  - Turn timer config is sane (turn > 0s; bonus/grace/disconnect logged)
+
+oracle: server
+budget: 300s
+data: any dealt hand
+pacing: fast
+notes: >
+  Fast practice tables may skip through intermediate matchmaking phases
+  between samples — only reaching Playing is a hard requirement; toss and
+  dealer are soft observations on this table type. Implemented at
+  integration_test/suites/gameplay/table_setup_test.dart.

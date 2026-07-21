@@ -1,0 +1,37 @@
+id: GP-DROP-002
+title: Mid drop costs 40 pts / 400 chips — correct deduction verified
+suite: gameplay
+configs: [points-2p]
+priority: P0
+
+preconditions:
+  - logged-in guest with ≥ 10K practice chips
+  - practice table per config (2 players)
+
+steps:
+  - Login (or reuse session); record lobby chip balance
+  - Join 2P Points practice table
+  - Turn 1 (local player draw window): draw from closed deck, discard drawn card
+  - Wait for local player's next draw window (turn 2 for us)
+  - Tap Drop on turn 2 (mid drop — at least one draw-discard already done)
+  - Verify result screen shows local player's score == 40 pts
+  - Leave Game → Back to Lobby; re-read lobby chip balance
+  - Assert lobby chips = initial chips − 400
+
+expected:
+  - Server registers local player as dropped (droppedPlayers roster updated)
+  - Local player's deal-end score is exactly 40 pts (mid-drop fixed penalty)
+  - Lobby chip balance after exit == initial balance − 400 chips
+
+oracle: server + wallet
+budget: 300s
+data: any dealt hand
+pacing: fast
+notes: >
+  Mid drop = drop at the start of the draw window on any turn after at
+  least one complete draw-discard cycle. Penalty is fixed at 40 pts
+  regardless of hand value (QA rulebook 2026-07-20).
+  Practice EF 800 table: 40 pts × 10 chips/pt = 400 chips.
+  Chip balance read via AppTestHooks seam (same as GP-DROP-001).
+  configs: points-6p will be added in a follow-up pass.
+  Implemented at integration_test/suites/gameplay/mid_drop_test.dart.

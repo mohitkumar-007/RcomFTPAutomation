@@ -1,0 +1,12 @@
+[patrol]
+app_name = "RummyApp"
+package_name = "com.rummydotcom.indianrummycashgame"
+bundle_id = "com.rummydotcom.indianrummycashgame"
+
+android_test_runner = "com.rummydotcom.indianrummycashgame.test/androidx.test.runner.AndroidJUnitRunner"
+
+[patrol.android]
+wait_for_app_to_settle_timeout = 12000
+
+[patrol.ios]
+reset_policy = "resetApp"

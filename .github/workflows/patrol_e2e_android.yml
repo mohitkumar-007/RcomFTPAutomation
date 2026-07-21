@@ -1,0 +1,295 @@
+name: Patrol E2E — Android
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 1 * * *"   # Nightly regression at 01:00 UTC
+  workflow_dispatch:
+    inputs:
+      target_suite:
+        description: "Suite to run (auth | lobby | game_selection | gameplay | all)"
+        required: false
+        default: "all"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  JAVA_VERSION: "17"
+  PATROL_CLI_VERSION: "3.4.0"
+
+jobs:
+  # ── Build instrumented APKs once, reuse across all matrix shards ──────────
+  build-apks:
+    name: Build Test APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Enable KVM for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Patrol CLI
+        run: dart pub global activate patrol_cli ${{ env.PATROL_CLI_VERSION }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Android debug + test APKs
+        run: |
+          patrol build android \
+            --dart-define=BASE_URL=${{ secrets.QA_BASE_URL }} \
+            --dart-define=WS_URL=${{ secrets.QA_WS_URL }} \
+            --dart-define=BYPASS_OTP=true \
+            --dart-define=MOCK_OTP=${{ secrets.MOCK_OTP }} \
+            --dart-define=TEST_PHONE=${{ secrets.TEST_PHONE }} \
+            --dart-define=MOCK_GAME_SERVER=true
+
+      - name: Upload app APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: build/app/outputs/apk/debug/app-debug.apk
+          retention-days: 1
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-apk
+          path: build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          retention-days: 1
+
+  # ── Run tests across API levels in parallel ────────────────────────────────
+  test-android:
+    name: "Android API ${{ matrix.api-level }} — ${{ matrix.suite }}"
+    needs: build-apks
+    runs-on: macos-14        # Apple Silicon — fastest emulator host available
+    strategy:
+      fail-fast: false       # All shards must run to produce a complete Allure report
+      matrix:
+        api-level: ["30", "33"]
+        suite: ["auth", "lobby", "game_selection", "gameplay", "static_content"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download APKs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-apk"
+          merge-multiple: true
+          path: apks/
+
+      - name: Cache AVD snapshot
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ matrix.api-level }}-${{ runner.arch }}-v1
+
+      - name: Create AVD (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect
+            -noaudio -no-boot-anim -camera-back none
+          script: echo "AVD created"
+
+      - name: Run Patrol suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect
+            -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            mkdir -p reports/allure-results reports/screenshots
+
+            adb install -r apks/app-debug.apk
+            adb install -r apks/app-debug-androidTest.apk
+
+            adb shell am instrument -w \
+              -e class "com.company.rummyapp.integration_test.suites.${{ matrix.suite }}" \
+              com.company.rummyapp.test/androidx.test.runner.AndroidJUnitRunner \
+              | tee reports/raw_output_${{ matrix.suite }}_api${{ matrix.api-level }}.txt || true
+
+            dart run tool/convert_to_allure.dart \
+              --input  reports/raw_output_${{ matrix.suite }}_api${{ matrix.api-level }}.txt \
+              --output reports/allure-results/ \
+              --suite  ${{ matrix.suite }} \
+              --api-level ${{ matrix.api-level }}
+
+      - name: Capture failure screenshot
+        if: failure()
+        run: |
+          adb exec-out screencap -p \
+            > reports/screenshots/FAIL_${{ matrix.suite }}_api${{ matrix.api-level }}_run${{ github.run_number }}.png
+
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results-${{ matrix.suite }}-api${{ matrix.api-level }}
+          path: reports/allure-results/
+          retention-days: 14
+
+      - name: Upload failure screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots-${{ matrix.suite }}-api${{ matrix.api-level }}
+          path: reports/screenshots/
+          retention-days: 7
+
+  # ── Aggregate, publish, and dispatch report ────────────────────────────────
+  publish-report:
+    name: Publish Allure Report & Dispatch Email
+    needs: test-android
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all Allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          merge-multiple: true
+          path: allure-results/
+
+      - name: Restore Allure history from gh-pages
+        run: |
+          git fetch origin gh-pages 2>/dev/null || true
+          git checkout origin/gh-pages -- history 2>/dev/null || mkdir -p history
+
+      - name: Generate Allure HTML report
+        uses: simple-elf/allure-report-action@v1.9
+        with:
+          allure_results: allure-results/
+          allure_history: history/
+          allure_report: allure-report/
+          keep_reports: 30
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: allure-report/
+          destination_dir: reports/${{ github.run_number }}
+
+      - name: Resolve overall test result
+        id: status
+        run: |
+          if [ "${{ needs.test-android.result }}" = "success" ]; then
+            echo "label=PASSED ✅" >> $GITHUB_OUTPUT
+          else
+            echo "label=FAILED ❌" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send email report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: >-
+            [${{ steps.status.outputs.label }}] Rummy E2E — Run #${{ github.run_number }} — ${{ github.ref_name }}
+          to: >-
+            ${{ secrets.QE_TEAM_EMAIL }},
+            ${{ secrets.DEV_LEAD_EMAIL }},
+            ${{ secrets.PRODUCT_EMAIL }}
+          from: "Rummy Automation <${{ secrets.SMTP_USERNAME }}>"
+          convert_markdown: true
+          body: |
+            ## Rummy E2E Automation Report
+
+            | Field      | Value |
+            |------------|-------|
+            | **Status** | ${{ steps.status.outputs.label }} |
+            | **Branch** | `${{ github.ref_name }}` |
+            | **Run**    | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+            | **Commit** | `${{ github.sha }}` |
+            | **Trigger**| ${{ github.event_name }} |
+
+            ### Suites
+            Auth · Lobby · Game Selection · Gameplay · Static Content
+
+            ### API Levels
+            Android 11 (API 30) · Android 13 (API 33)
+
+            ### Full Report
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ github.run_number }}
+
+            ---
+            *Dispatched by GitHub Actions — ${{ github.repository }}*
+
+      - name: Notify Slack on failure
+        if: needs.test-android.result != 'success'
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          channel-id: ${{ secrets.SLACK_QE_CHANNEL_ID }}
+          payload: |
+            {
+              "text": "❌ Rummy E2E Failed — Run #${{ github.run_number }} on `${{ github.ref_name }}`",
+              "attachments": [{
+                "color": "#dc3545",
+                "fields": [
+                  { "title": "Branch",  "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Commit",  "value": "${{ github.sha }}",      "short": true },
+                  { "title": "Report",  "value": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ github.run_number }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

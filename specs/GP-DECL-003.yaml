@@ -1,0 +1,50 @@
+id: GP-DECL-003
+title: Valid Declaration — 0-pt win and chip-balance reconciliation — Points 2P
+suite: gameplay
+configs: [points-2p]
+priority: P0
+
+preconditions:
+  - logged-in guest with known practice chip balance
+  - practice table (points-2p)
+
+steps:
+  - Capture initial practice chip balance (Initial_Chips) from the lobby
+  - Login (or reuse session) → Practice → Play Now [points-2p]
+  - Play turns following the human strategy (open/closed draw decision,
+    best-arrangement grouping, discard high-deadwood)
+  - If opponent declares first — arrange to minimise points, submit hand,
+    record chips lost in this game (our_score × 10), continue to next game
+  - Repeat games until the local player can perform a valid declaration
+  - Drag final card to Finish slot; take screenshot of pre-declaration window
+  - Tap Declare to confirm
+  - Take screenshot of result screen
+  - Verify local player scored 0 pts and is listed as winner
+  - Verify Match_Chips_Won = Opponent_Lost_Score × 10
+  - Leave Game → Back to Lobby
+  - Verify final chips = Initial_Chips − Accumulated_Lost_Chips + Match_Chips_Won
+
+expected:
+  - Server accepts the valid declaration
+  - Result screen: local player 0 pts (winner row), all opponent scores
+    cross-checked by the QA engine
+  - Match_Chips_Won = opponent's deal-end score × 10 chips/pt
+  - Final lobby balance = Initial_Chips − Accumulated_Lost_Chips + Match_Chips_Won
+  - Pre-declaration screenshot captured (arrange timer + Declare button visible)
+  - Result screen screenshot captured (0-pt winner row visible)
+
+oracle: server + qa-rule + wallet
+budget: 1800s   # up to 10 games × ~3 min each; extend if card luck is poor
+data: any dealt hand (depends on card luck — rerun if budget exceeded)
+pacing: human
+notes: >
+  Pregame flow runs as part of every TC per Mohit's standing instruction —
+  silent on pass, flagged only on failure.
+  Uses HumanPlaySteps.playGamesUntilWinTracking (up to 10 games) with chip
+  accumulation: each loss adds our_score × 10 to Accumulated_Lost_Chips; the
+  win adds opponent_score × 10 as Match_Chips_Won.
+  Pre-declaration screenshot emitted from DeclarationSteps.declareValidIfPossible
+  (after submitToFinishSlot, before confirmDeclaration).
+  Result screenshot emitted from ResultSteps.verifyWeWon (after oracle checks).
+  Both captured by the host-side screencap watcher in run_test.sh.
+  Implemented at integration_test/suites/gameplay/valid_declare_test.dart.

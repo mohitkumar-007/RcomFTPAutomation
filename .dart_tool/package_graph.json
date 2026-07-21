@@ -1,0 +1,21 @@
+{
+  "roots": [
+    "rcom_ftp_automation"
+  ],
+  "packages": [
+    {
+      "name": "rcom_ftp_automation",
+      "version": "0.1.0",
+      "dependencies": [
+        "args"
+      ],
+      "devDependencies": []
+    },
+    {
+      "name": "args",
+      "version": "2.7.0",
+      "dependencies": []
+    }
+  ],
+  "configVersion": 1
+}

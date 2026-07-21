@@ -1,0 +1,23 @@
+{
+  "gameId": "TEST_GAME_WIN_001",
+  "status": "IN_PROGRESS",
+  "currentTurn": "test_player",
+  "joker": "5C",
+  "deckCount": 12,
+  "discardPile": ["QH"],
+  "canDeclare": true,
+  "players": [
+    {
+      "id": "test_player",
+      "name": "TestBot",
+      "cardCount": 13,
+      "hand": ["AS","2S","3S","4H","5H","6H","7D","8D","9D","10C","JC","QC","KC"]
+    }
+  ],
+  "validSets": [
+    ["AS","2S","3S"],
+    ["4H","5H","6H"],
+    ["7D","8D","9D"],
+    ["10C","JC","QC","KC"]
+  ]
+}

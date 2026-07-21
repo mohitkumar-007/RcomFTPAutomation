@@ -1,0 +1,115 @@
+name: Gameplay Test Suite
+
+on:
+  # Trigger on push to main/dev, PRs, or manual dispatch
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hours max for the full suite + emulator startup
+
+    steps:
+      # 1. Checkout RcomFTPAutomation (this test suite repo)
+      - uses: actions/checkout@v4
+        with:
+          path: RcomFTPAutomation
+
+      # 2. Checkout Prism (the app being tested)
+      # Assumes: your-org/prism is the same org/account as RcomFTPAutomation
+      # If different, update 'repository:' below
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/prism
+          path: prism
+
+      # 3. Set up Java (required by Android SDK)
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 4. Set up Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          arch: x86_64
+
+      # 5. Create Android emulator
+      - name: Create Android emulator
+        run: |
+          echo "no" | avdmanager create avd -n test-emulator -k "system-images;android-34;google_apis;x86_64" -f
+
+      # 6. Start emulator (background)
+      - name: Start emulator
+        run: |
+          emulator -avd test-emulator -no-audio -no-boot-anim &
+          adb wait-for-device
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          sleep 10
+
+      # 7. Install FVM and Flutter 3.41.6
+      - name: Install FVM
+        run: |
+          brew install fvm || echo "FVM already installed"
+          fvm install 3.41.6
+          fvm use 3.41.6
+
+      # 8. Install Patrol CLI
+      - name: Install Patrol CLI
+        run: |
+          pub global activate patrol_cli 4.5.1
+
+      # 9. Get Rummy dependencies
+      - name: Get Rummy dependencies
+        run: |
+          cd prism/apps/rummy
+          flutter pub get
+
+      # 10. Build test APK
+      - name: Build test APK
+        run: |
+          cd prism/apps/rummy
+          flutter build apk \
+            --release \
+            --flavor rummy \
+            --dart-define=FLUTTER_ENV=qa \
+            -t integration_test/main.dart
+
+      # 11. Run the full gameplay test suite
+      - name: Run gameplay suite
+        run: |
+          cd RcomFTPAutomation
+          RUMMY_DIR=${{ github.workspace }}/prism/apps/rummy ./run_suite.sh emulator-5554 --no-serve
+        continue-on-error: true  # Don't fail the job if a test fails; report it instead
+
+      # 12. Archive logcats
+      - name: Archive test artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: gameplay-test-results
+          path: |
+            RcomFTPAutomation/reports/logcat_*.txt
+            RcomFTPAutomation/reports/allure-results/
+
+      # 13. Publish report summary (optional: if you have a static hosting)
+      - name: Comment PR with report link
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'RcomFTPAutomation/reports/allure-results/index.html';
+            const msg = `✅ Gameplay tests complete. See [Allure report](artifacts-link-here) for details.`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: msg
+            });

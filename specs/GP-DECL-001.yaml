@@ -1,0 +1,31 @@
+id: GP-DECL-001
+title: Wrong declaration via finish slot ends the game and player exits to lobby
+suite: gameplay
+configs: [points-2p, points-6p]
+priority: P0
+
+preconditions:
+  - logged-in guest with ≥ 10K practice chips
+  - practice table per config (2 or 6 players)
+
+steps:
+  - Login (or reuse session) → Practice → Play Now
+  - Wait for table, bridge attach, RummyGamePlaying
+  - Turns 1-3, draw from closed deck and discard the drawn card
+  - Turn 4, put drawn card in FINISH slot and confirm ungrouped hand
+  - Leave Game on score table, Back to Lobby on result screen
+
+expected:
+  - Each discard accepted by server (card leaves hand ≤ 10s; turn passes)
+  - Pre-declaration window opens for the local declarer
+  - Server rules declarerInvalid (wrong declaration confirmed by backend)
+  - Score table then static result screen appear
+  - Lobby (Practice surface) visible after Back to Lobby
+
+oracle: server
+budget: 480s
+data: any dealt hand
+pacing: fast
+notes: >
+  Ported from the POC (passed 2026-07-19, 69s). Implemented at
+  integration_test/suites/gameplay/declaration_wrong_test.dart.

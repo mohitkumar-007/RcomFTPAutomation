@@ -1,0 +1,27 @@
+name: rcom_ftp_automation
+description: Production-grade E2E automation framework for Rummy Flutter app.
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  patrol: ^3.12.0
+  mocktail: ^1.0.4
+  http: ^1.2.1
+  shelf: ^1.4.2
+  shelf_web_socket: ^2.0.0
+  web_socket_channel: ^3.0.1
+  args: ^2.5.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,38 @@
+# Copy this file to <ID>.yaml (e.g. GP-DECL-002.yaml) and fill it in.
+# Field notes:
+#   oracle — what each assertion trusts:
+#     bloc         client state (flow-level checks only)
+#     server       server-confirmed state via the bloc mirror (verdicts, turns)
+#     qa-rule      computed independently in the test from QA-taught rules
+#     wallet       balance/transaction check (app state or backend)
+#     cross-device observed on a second, independent device in the same match
+#   budget — hard wall-clock limit for the whole case; exceeding it = FAIL.
+#   Fail criteria are uniform and implicit: any expected line unmet, any step
+#   timeout, or budget exceeded → FAIL (step name + game state in the report).
+
+id: GP-XXXX-000
+title: One-line behavior under test
+suite: gameplay            # folder under integration_test/suites/
+configs: [points-2p, points-6p]   # table matrix this case runs on:
+                                  # points-2p | points-6p | deals-2p (pool later)
+                                  # write the case ONCE — it loops over these;
+                                  # select at runtime via --dart-define=TABLE_CONFIGS
+priority: P1               # P0 smoke | P1 regression | P2 edge
+
+preconditions:
+  - logged-in guest with ≥ 10K practice chips
+  - 2-player practice table
+
+steps:
+  - Step one (one action per line)
+  - Step two
+
+expected:
+  - Assertion one (one per line; number them to match steps if helpful)
+  - Assertion two
+
+oracle: server             # may combine: server + qa-rule + wallet
+budget: 300s
+data: any dealt hand       # or the seeded/forced hand if the env supports it
+pacing: fast               # fast | human (3-7s pause before each action)
+notes: ""

@@ -1,0 +1,42 @@
+id: GP-DROP-001
+title: Game table load time and first-drop chip/score deduction — Points 2/6 players
+suite: gameplay
+configs: [points-2p]      # 6p to be added once first-drop chip/point values are
+                          # confirmed for that config (Mohit: same case, 2P first)
+priority: P0
+
+preconditions:
+  - logged-in guest with known practice chip balance
+  - practice table per config (2 or 6 players)
+
+steps:
+  - Capture current chips balance from the lobby before joining
+  - Login (or reuse session) → Practice → Play Now [config]; record elapsed
+    time from Play Now tap to game table assets fully loaded
+  - Wait for RummyGamePlaying and the local player's first turn
+  - On first turn, tap Drop → confirm Yes on the confirmation prompt
+    (drop before drawing/picking any card — "first drop")
+  - Wait for Result screen
+  - Leave Game → Back to Lobby
+
+expected:
+  - Game table load time (Play Now tap → assets loaded) < 3s
+  - Result screen shows the local player lost 20 points on the first drop
+  - Wallet: 200 chips deducted for the first drop
+  - Lobby chip balance after Back to Lobby = captured initial chips − 200
+
+oracle: server + qa-rule + wallet
+budget: 240s
+data: any dealt hand
+pacing: fast
+notes: >
+  Pregame flow (login, bridge attach, table setup) runs as part of every TC
+  per Mohit's standing instruction — silent on pass, flagged only on
+  failure. First-drop penalty: 20 points / 200 chips (10 chips-per-point,
+  consistent with the EF800 chip conversion). 6P variant intentionally
+  deferred until first-drop values are confirmed for that config.
+  Chip balance read via debug-only AppTestHooks seam (AppBloc.state.balance.
+  practiceAccount.golds) — no UI text parsing.
+  Load time measured from Play Now tap to RummyGamePage mount (bridge-attach
+  baseline) via PregameFlow.joinAndAttachTimed().
+  Implemented at integration_test/suites/gameplay/first_drop_test.dart.

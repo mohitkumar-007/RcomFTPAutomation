@@ -1,0 +1,28 @@
+id: GP-TURN-001
+title: Draw from closed deck and discard for three turns at human pacing
+suite: gameplay
+configs: [points-2p, points-6p]
+priority: P0
+
+preconditions:
+  - logged-in guest with ≥ 10K practice chips
+  - practice table per config (2 or 6 players)
+
+steps:
+  - Login (or reuse session) → Practice → Play Now
+  - Wait for table, bridge attach, RummyGamePlaying
+  - Turns 1-3, pause 3-7s (human pacing), draw from closed, pause 3-7s, discard drawn card
+
+expected:
+  - Draw only trusted after server flips phase to afterDraw (fresh card each turn)
+  - Each discard accepted by server (card leaves hand ≤ 10s; turn passes)
+  - All pauses stay inside the 20s + 15s turn timer (no auto-discard triggered)
+
+oracle: server
+budget: 420s
+data: any dealt hand
+pacing: human
+notes: >
+  Human pacing answers "can it play like a real user" — a random 3-7s think
+  time before each pick and discard. Implemented at
+  integration_test/suites/gameplay/turn_actions_test.dart.

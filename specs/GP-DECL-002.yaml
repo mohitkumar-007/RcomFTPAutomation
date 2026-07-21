@@ -1,0 +1,46 @@
+id: GP-DECL-002
+title: Invalid Declare — 80-pt penalty and 800-chip deduction — Points 2P
+suite: gameplay
+configs: [points-2p]
+priority: P0
+
+preconditions:
+  - logged-in guest with known practice chip balance
+  - practice table (points-2p)
+
+steps:
+  - Capture current practice chip balance from the lobby before joining
+  - Login (or reuse session) → Practice → Play Now [points-2p]
+  - Wait for matchmaking / toss / deal; record setup invariants silently
+  - On the local player's first turn, draw a card from the closed deck
+  - Submit the drawn card to the FINISH slot (hand intentionally ungrouped)
+  - Take screenshot of the pre-declaration window (Declare button + warning visible)
+  - Tap Declare (confirm the declaration)
+  - Server rules DeclarerInvalid
+  - Wait for deal-end result screen (2P: immediate; 6P: game continues for others)
+  - Take screenshot of the result screen showing 80-pt penalty
+  - Leave Game → Back to Lobby
+  - Verify lobby chip balance = captured initial chips − 800
+
+expected:
+  - Server verdict is DeclarerInvalid (wrong declaration confirmed by backend)
+  - Result screen shows local player lost exactly 80 pts (invalid-declare cap)
+  - Wallet: 800 chips deducted (80 pts × 10 chips/pt, EF 800 table)
+  - Lobby chip balance after Back to Lobby = initial chips − 800
+  - Pre-declaration screenshot captured (Declare button and warning message visible)
+  - Result screen screenshot captured (80-pt penalty displayed)
+
+oracle: server + qa-rule + wallet
+budget: 360s
+data: any dealt hand (invalid declare is hand-value-independent — always 80 pts)
+pacing: fast
+notes: >
+  Pregame flow runs as part of every TC per Mohit's standing instruction —
+  silent on pass, flagged only on failure. Invalid declare penalty: 80 pts
+  (= handPointsCap) / 800 chips (10 chips-per-point, EF 800 practice table).
+  The hand is submitted ungrouped (default group) so DeclarerInvalid is
+  guaranteed regardless of which card is drawn.
+  Chip balance read via AppTestHooks seam (AppBloc.state.balance.practiceAccount.golds).
+  Screenshots are captured by the host-side screencap watcher in run_test.sh
+  (adb exec-out screencap -p triggered on 🃏 SCREENSHOT log markers).
+  Implemented at integration_test/suites/gameplay/invalid_declare_test.dart.
