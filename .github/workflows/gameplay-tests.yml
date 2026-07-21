@@ -11,6 +11,12 @@ on:
 env:
   FLUTTER_VERSION: '3.41.6'
   PATROL_CLI_VERSION: '4.5.1'
+  # Prism lives on Bitbucket (bitbucket.org/junglee_games/prism), NOT
+  # GitHub — actions/checkout can't reach it, hence the manual git-clone
+  # step below instead. Update this branch to whatever your dev tells you
+  # is the current stable/prod-matching branch (they said "game_table_fixes"
+  # as of 2026-07-21 — confirm before every CI change, this drifts).
+  PRISM_BRANCH: 'game_table_fixes'
 
 jobs:
   test:
@@ -18,20 +24,24 @@ jobs:
     timeout-minutes: 120  # 2 hours max for the full suite + emulator startup
 
     steps:
-      # 1. Checkout RcomFTPAutomation (this test suite repo)
+      # 1. Checkout RcomFTPAutomation (this test suite repo, on GitHub)
       - name: Checkout RcomFTPAutomation
         uses: actions/checkout@v4
         with:
           path: RcomFTPAutomation
 
-      # 2. Checkout Prism (the app being tested — separate repo, same owner)
-      - name: Checkout Prism
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/prism
-          path: prism
-          # If Prism is private and this token can't see it, add a PAT:
-          # token: ${{ secrets.PRISM_REPO_TOKEN }}
+      # 2. Clone Prism (the app being tested) from Bitbucket.
+      #    Requires a Bitbucket App Password stored as the GitHub secret
+      #    BITBUCKET_APP_PASSWORD (repo read scope). Create one at:
+      #    Bitbucket → Personal settings → App passwords → read access to
+      #    Repositories. Add it: GitHub repo → Settings → Secrets and
+      #    variables → Actions → New repository secret.
+      - name: Clone Prism (Bitbucket)
+        run: |
+          git clone --depth 1 --branch "$PRISM_BRANCH" \
+            "https://mohitkumar-007:${{ secrets.BITBUCKET_APP_PASSWORD }}@bitbucket.org/junglee_games/prism.git" \
+            prism
+          echo "Cloned prism @ $(git -C prism rev-parse --short HEAD) ($PRISM_BRANCH)"
 
       # 3. Set up Java (required by Android SDK)
       - name: Set up Java
