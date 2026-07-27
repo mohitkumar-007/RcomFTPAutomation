@@ -6,113 +6,54 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 2 * * *'
 
 env:
   FLUTTER_VERSION: '3.41.6'
   PATROL_CLI_VERSION: '4.5.1'
-  # Prism lives on Bitbucket (bitbucket.org/junglee_games/prism), NOT
-  # GitHub — actions/checkout can't reach it, hence the manual git-clone
-  # step below instead. Update this branch to whatever your dev tells you
-  # is the current stable/prod-matching branch (they said "game_table_fixes"
-  # as of 2026-07-21 — confirm before every CI change, this drifts).
   PRISM_BRANCH: 'game_table_fixes'
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2 hours max for the full suite + emulator startup
+    runs-on: self-hosted
+    timeout-minutes: 60
 
     steps:
-      # 1. Checkout RcomFTPAutomation (this test suite repo, on GitHub)
       - name: Checkout RcomFTPAutomation
         uses: actions/checkout@v4
         with:
           path: RcomFTPAutomation
 
-       # 2. Clone Prism (the app being tested) from Bitbucket.
-      #    Uses Bitbucket username + token over HTTPS.
-      - name: Clone Prism (Bitbucket)
-        env:
-          BITBUCKET_ACCESS_TOKEN: ${{ secrets.BITBUCKET_ACCESS_TOKEN }}
+      - name: Setup SSH for Bitbucket
         run: |
-          set -e
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BITBUCKET_SSH_KEY }}" > ~/.ssh/bitbucket_rsa
+          chmod 600 ~/.ssh/bitbucket_rsa
+          ssh-keyscan -t rsa bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null
 
-          if [ -z "$BITBUCKET_ACCESS_TOKEN" ]; then
-            echo "Missing BITBUCKET_ACCESS_TOKEN"
-            exit 1
-          fi
-
-          git ls-remote "https://mohitkumar-007:${BITBUCKET_ACCESS_TOKEN}@bitbucket.org/junglee_games/prism.git" > /dev/null
-
+      - name: Clone Prism (Bitbucket)
+        run: |
           git clone --depth 1 --branch "$PRISM_BRANCH" \
-            "https://mohitkumar-007:${BITBUCKET_ACCESS_TOKEN}@bitbucket.org/junglee_games/prism.git" \
-            prism
-
+            git@bitbucket.org:junglee_games/prism.git prism
           echo "Cloned prism @ $(git -C prism rev-parse --short HEAD) ($PRISM_BRANCH)"
 
-      # 3. Set up Java (required by Android SDK)
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      # 4. Set up Flutter at the exact pinned version (replaces FVM in CI —
-      #    flutter-action caches by version, no shell-script install needed)
-      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
-      # 5. Enable KVM so the emulator runs at hardware speed, not software
-      - name: Enable KVM for emulator
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      # 6. Install Patrol CLI
-      - name: Install Patrol CLI
-        run: dart pub global activate patrol_cli ${{ env.PATROL_CLI_VERSION }}
-
-      # 7. Get Rummy dependencies
       - name: Get Rummy dependencies
         run: |
           cd prism/apps/rummy
           flutter pub get
 
-      # 8. Run the full gameplay suite on a managed Android emulator.
-      #    reactivecircus/android-emulator-runner boots the AVD, runs the
-      #    script inside that context, and tears it down after — this is
-      #    the reliable way to get an emulator on a GitHub-hosted runner
-      #    (manual avdmanager/emulator invocation is flaky without it).
-      - name: Run gameplay suite on emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          force-avd-creation: false
-          emulator-options: >-
-            -no-window -gpu swiftshader_indirect
-            -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb shell settings put global window_animation_scale 0
-            adb shell settings put global transition_animation_scale 0
-            adb shell settings put global animator_duration_scale 0
-            DEVICE_ID=$(adb devices | awk 'NR==2 {print $1}')
-            cd RcomFTPAutomation
-            RUMMY_DIR="${{ github.workspace }}/prism/apps/rummy" \
-              ./run_suite.sh "$DEVICE_ID" --no-serve || true
-            # `|| true`: a scenario failure (or the known 6P watchdog kill)
-            # must not fail this step — the Allure report is the record of
-            # truth; the job below decides pass/fail from its contents.
+      - name: Run tests on physical device
+        run: |
+          cd RcomFTPAutomation
+          ./run_test.sh integration_test/main_test.dart 14091JEC202977 || true
 
-      # 9. Archive logcats + Allure results as a downloadable artifact
       - name: Archive test artifacts
         if: always()
         uses: actions/upload-artifact@v4
