@@ -39,7 +39,7 @@ jobs:
       - name: Clone Prism (Bitbucket)
         run: |
           git clone --depth 1 --branch "$PRISM_BRANCH" \
-            "https://mohitkumar-007:${{ secrets.BITBUCKET_APP_PASSWORD }}@bitbucket.org/junglee_games/prism.git" \
+            "https://x-token-auth:${{ secrets.BITBUCKET_ACCESS_TOKEN }}@bitbucket.org/junglee_games/prism.git" \
             prism
           echo "Cloned prism @ $(git -C prism rev-parse --short HEAD) ($PRISM_BRANCH)"
 
