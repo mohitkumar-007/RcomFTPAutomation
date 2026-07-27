@@ -1,12 +1,10 @@
-name: Gameplay Test Suite
+name: Deal Single Run Test
 
 on:
   push:
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'
 
 env:
   FLUTTER_VERSION: '3.41.6'
@@ -15,8 +13,8 @@ env:
 
 jobs:
   test:
-    runs-on: self-hosted
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
       - name: Checkout RcomFTPAutomation
@@ -37,6 +35,12 @@ jobs:
             git@bitbucket.org:junglee_games/prism.git prism
           echo "Cloned prism @ $(git -C prism rev-parse --short HEAD) ($PRISM_BRANCH)"
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -49,16 +53,38 @@ jobs:
           cd prism/apps/rummy
           flutter pub get
 
-      - name: Run tests on physical device
+      - name: Enable KVM for emulator
         run: |
-          cd RcomFTPAutomation
-          ./run_test.sh integration_test/main_test.dart 14091JEC202977 || true
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Patrol CLI
+        run: dart pub global activate patrol_cli ${{ env.PATROL_CLI_VERSION }}
+
+      - name: Run Deal Single Run Test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect
+            -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+            cd RcomFTPAutomation
+            AREA=deal PARENT_SUITE=deal_suite SUITE=deal_single ./run_suite_single.sh emulator-5554 || true
 
       - name: Archive test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gameplay-test-results-${{ github.run_number }}
+          name: deal-test-results-${{ github.run_number }}
           path: |
             RcomFTPAutomation/reports/logcat_*.txt
             RcomFTPAutomation/reports/allure-results/
