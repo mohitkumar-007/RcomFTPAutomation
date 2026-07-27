@@ -89,4 +89,4 @@ jobs:
             RcomFTPAutomation/reports/logcat_*.txt
             RcomFTPAutomation/reports/allure-results/
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: warn  
