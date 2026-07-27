@@ -22,13 +22,17 @@ jobs:
         with:
           path: RcomFTPAutomation
 
+      - name: Setup SSH for Bitbucket
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BITBUCKET_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -t rsa bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null
+
       - name: Clone Prism (Bitbucket)
-        env:
-          BITBUCKET_USERNAME: ${{ secrets.BITBUCKET_USERNAME }}
-          BITBUCKET_APP_PASSWORD: ${{ secrets.BITBUCKET_APP_PASSWORD }}
         run: |
           git clone --depth 1 --branch "$PRISM_BRANCH" \
-            "https://${BITBUCKET_USERNAME}:${BITBUCKET_APP_PASSWORD}@bitbucket.org/junglee_games/prism.git" prism
+            git@bitbucket.org:junglee_games/prism.git prism
           echo "Cloned prism @ $(git -C prism rev-parse --short HEAD) ($PRISM_BRANCH)"
 
       - name: Set up Java
